@@ -28,7 +28,6 @@ class TestTasks:
         result = schedule_camera_captures()
 
         assert result['scheduled'] == 2
-        # ✅ حذف assertion برای timestamp (چون تابع واقعی timestamp برنمی‌گرداند)
 
     @patch('tasks.redis.Redis')
     @patch('tasks.db')

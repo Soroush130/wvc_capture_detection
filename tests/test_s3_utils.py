@@ -1,7 +1,7 @@
 # tests/test_s3_utils.py
 import pytest
 from unittest.mock import patch, MagicMock
-from aws_s3.s3_utils import upload_to_s3, delete_from_s3, get_s3_client, _with_allowed_prefix  # ✅ اصلاح شد
+from aws_s3.s3_utils import upload_to_s3, delete_from_s3, get_s3_client, _with_allowed_prefix
 
 
 class TestS3Utils:
@@ -22,7 +22,7 @@ class TestS3Utils:
         result = _with_allowed_prefix("/photos/test.jpg")
         assert result == "uploads/photos/test.jpg"
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_get_s3_client_success(self, mock_boto_client):
         """Test S3 client creation"""
         mock_s3 = MagicMock()
@@ -33,7 +33,7 @@ class TestS3Utils:
         assert client is not None
         mock_boto_client.assert_called_once()
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_upload_to_s3_success(self, mock_boto_client):
         """Test successful file upload to S3"""
         mock_s3 = MagicMock()
@@ -48,7 +48,7 @@ class TestS3Utils:
         assert url.startswith("https://")
         mock_s3.put_object.assert_called_once()
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_upload_to_s3_with_content_type(self, mock_boto_client):
         """Test upload with custom content type"""
         mock_s3 = MagicMock()
@@ -63,7 +63,7 @@ class TestS3Utils:
         call_kwargs = mock_s3.put_object.call_args[1]
         assert call_kwargs['ContentType'] == "image/png"
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_upload_to_s3_failure(self, mock_boto_client):
         """Test upload failure handling"""
         mock_s3 = MagicMock()
@@ -78,7 +78,7 @@ class TestS3Utils:
         assert success is False
         assert url == ""
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_delete_from_s3_success(self, mock_boto_client):
         """Test successful file deletion from S3"""
         mock_s3 = MagicMock()
@@ -91,7 +91,7 @@ class TestS3Utils:
         assert result is True
         mock_s3.delete_object.assert_called_once()
 
-    @patch('aws_s3.s3_utils.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_utils.boto3.client')
     def test_delete_from_s3_failure(self, mock_boto_client):
         """Test deletion failure handling"""
         mock_s3 = MagicMock()

@@ -3,7 +3,7 @@ import pytest
 import tempfile
 import os
 from unittest.mock import patch, MagicMock
-from aws_s3.s3_download import download_from_s3, get_s3_url, _with_allowed_prefix  # ✅ اصلاح شد
+from aws_s3.s3_download import download_from_s3, get_s3_url, _with_allowed_prefix
 
 
 class TestS3Download:
@@ -14,8 +14,8 @@ class TestS3Download:
         result = _with_allowed_prefix("photos/test.jpg")
         assert result == "uploads/photos/test.jpg"
 
-    @patch('aws_s3.s3_download.boto3.client')  # ✅ اصلاح شد
-    @patch('aws_s3.s3_download.tempfile.NamedTemporaryFile')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_download.boto3.client')
+    @patch('aws_s3.s3_download.tempfile.NamedTemporaryFile')
     def test_download_from_s3_success(self, mock_tempfile, mock_boto_client):
         """Test successful download from S3"""
         # Mock temp file
@@ -34,7 +34,7 @@ class TestS3Download:
         assert result == "/tmp/test.jpg"
         mock_s3.download_file.assert_called_once()
 
-    @patch('aws_s3.s3_download.boto3.client')  # ✅ اصلاح شد
+    @patch('aws_s3.s3_download.boto3.client')
     def test_download_from_s3_failure(self, mock_boto_client):
         """Test download failure"""
         mock_s3 = MagicMock()
