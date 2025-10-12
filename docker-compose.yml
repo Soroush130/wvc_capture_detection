@@ -1,4 +1,10 @@
+# docker-compose.yml
+# این فایل در لوکال و سرور (بدون GPU settings) استفاده می‌شود
+
+version: '3.8'
+
 services:
+  # ==================== REDIS ====================
   redis:
     image: redis:latest
     container_name: redis
@@ -6,175 +12,140 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - capture_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
-    networks:
-      - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
+    restart: unless-stopped
 
+  # ==================== CELERY BEAT ====================
   celery-beat:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery-beat
     command: celery -A celery_app beat --loglevel=info
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
     env_file:
       - .env
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
+    restart: unless-stopped
 
-  # ==================== CAPTURE WORKERS ====================
+  # ==================== CAPTURE WORKERS (همیشه CPU) ====================
   celery-worker-capture-1:
-    build: .
-    command: celery -A celery_app worker --loglevel=info --pool=solo --max-tasks-per-child=5 --hostname=capture1@%h --queues=capture
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery-worker-capture-1
+    command: celery -A celery_app worker -Q capture --hostname=capture1@%h --loglevel=info --concurrency=4 --pool=solo
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - CELERYD_PREFETCH_MULTIPLIER=1
     env_file:
       - .env
+    environment:
+      - WORKER_NAME=capture1
+      - YOLO_DEVICE=cpu
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    restart: unless-stopped
 
   celery-worker-capture-2:
-    build: .
-    command: celery -A celery_app worker --loglevel=info --pool=solo --max-tasks-per-child=5 --hostname=capture2@%h --queues=capture
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery-worker-capture-2
+    command: celery -A celery_app worker -Q capture --hostname=capture2@%h --loglevel=info --concurrency=4 --pool=solo
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - CELERYD_PREFETCH_MULTIPLIER=1
     env_file:
       - .env
+    environment:
+      - WORKER_NAME=capture2
+      - YOLO_DEVICE=cpu
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    restart: unless-stopped
 
-  # ==================== DETECTION WORKERS ====================
+  # ==================== DETECTION WORKERS (پیش‌فرض CPU) ====================
   celery-worker-detection-1:
-    build: .
-    command: celery -A celery_app worker --loglevel=info --pool=solo --max-tasks-per-child=5 --hostname=detection1@%h --queues=detection
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery-worker-detection-1
+    command: celery -A celery_app worker -Q detection --hostname=detection1@%h --loglevel=info --concurrency=2 --pool=solo
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - CELERYD_PREFETCH_MULTIPLIER=1
     env_file:
       - .env
+    environment:
+      - WORKER_NAME=detection1
+      - YOLO_DEVICE=cpu  # پیش‌فرض CPU (در لوکال)
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    restart: unless-stopped
 
   celery-worker-detection-2:
-    build: .
-    command: celery -A celery_app worker --loglevel=info --pool=solo --max-tasks-per-child=5 --hostname=detection2@%h --queues=detection
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: celery-worker-detection-2
+    command: celery -A celery_app worker -Q detection --hostname=detection2@%h --loglevel=info --concurrency=2 --pool=solo
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
-      - CELERYD_PREFETCH_MULTIPLIER=1
     env_file:
       - .env
+    environment:
+      - WORKER_NAME=detection2
+      - YOLO_DEVICE=cpu  # پیش‌فرض CPU (در لوکال)
     depends_on:
       redis:
         condition: service_healthy
-    restart: unless-stopped
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    restart: unless-stopped
 
+  # ==================== FLOWER ====================
   flower:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flower
     command: celery -A celery_app flower --port=5555
     ports:
       - "5555:5555"
     volumes:
       - .:/app
-    environment:
-      - REDIS_HOST=redis
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=5432
     env_file:
       - .env
     depends_on:
-      - redis
-      - celery-worker-capture-1
-    restart: unless-stopped
+      redis:
+        condition: service_healthy
     networks:
       - capture_network
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
+    restart: unless-stopped
 
-volumes:
-  redis_data:
-
+# ==================== NETWORKS ====================
 networks:
   capture_network:
     driver: bridge
+
+# ==================== VOLUMES ====================
+volumes:
+  redis_data:

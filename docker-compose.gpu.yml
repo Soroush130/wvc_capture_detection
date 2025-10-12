@@ -1,0 +1,31 @@
+# docker-compose.gpu.yml
+# این فایل فقط در سرور و همراه با docker-compose.yml استفاده می‌شود
+# فقط تنظیمات GPU را override می‌کند
+
+version: '3.8'
+
+services:
+  # فقط detection workers را override می‌کنیم
+  celery-worker-detection-1:
+    environment:
+      - YOLO_DEVICE=cuda:0  # Override: از GPU استفاده کن
+      - CUDA_VISIBLE_DEVICES=0  # GPU 0 را نشان بده
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1  # یک GPU
+              capabilities: [gpu]
+
+  celery-worker-detection-2:
+    environment:
+      - YOLO_DEVICE=cuda:0  # Override: از GPU استفاده کن
+      - CUDA_VISIBLE_DEVICES=0  # GPU 0 را نشان بده
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1  # یک GPU
+              capabilities: [gpu]
