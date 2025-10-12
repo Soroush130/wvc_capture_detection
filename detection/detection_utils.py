@@ -67,75 +67,76 @@ def log_gpu_memory(device: str, step: str = ""):
 
 
 # ==================== CLASS CONFIGURATION ====================
+MIN_CONFIDENCE = 0.80
 CLASS_CONFIG = {
     # ==================== VEHICLES ====================
     'car': {
         'map_to': 'car',
-        'min_confidence': 0.25,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'truck': {
         'map_to': 'truck',
-        'min_confidence': 0.25,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'bus': {
         'map_to': 'truck',  # Bus → Truck
-        'min_confidence': 0.25,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
 
     # ==================== PERSON ====================
     'person': {
         'map_to': 'person',
-        'min_confidence': 0.25,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
 
     # ==================== ANIMALS → DEER ====================
     'dog': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'cat': {
         'map_to': 'deer',
-        'min_confidence': 0.35,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'horse': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'sheep': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'cow': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'elephant': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'bear': {
         'map_to': 'deer',
-        'min_confidence': 0.35,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'zebra': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
     'giraffe': {
         'map_to': 'deer',
-        'min_confidence': 0.30,
+        'min_confidence': MIN_CONFIDENCE,
         'save_image': True,
     },
 }
@@ -206,7 +207,7 @@ def detect_objects(photo_id: int, s3_key: str) -> Optional[Dict]:
         results: List[Results] = model.predict(
             local_path,
             device=_device,
-            conf=0.20,  # Low threshold - we'll filter per-class later
+            conf=0.60,  # Low threshold - we'll filter per-class later
             verbose=False
         )
 
