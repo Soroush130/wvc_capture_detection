@@ -1,12 +1,9 @@
-# Dockerfile
-# این Dockerfile در هر دو محیط (لوکال و سرور) استفاده می‌شود
-# PyTorch خودش تشخیص می‌دهد GPU وجود دارد یا نه
-
+# Dockerfile (optimized)
 FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies and clean in ONE layer
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -19,34 +16,31 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     wget \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* /var/tmp/*
 
 WORKDIR /app
 
-# Copy requirements first (better caching)
 COPY requirements.txt .
 
-# Upgrade pip
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# Install ALL packages in ONE layer and clean immediately
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir \
+        torch==2.1.2 \
+        torchvision==0.16.2 \
+        torchaudio==2.1.2 \
+        --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && rm -rf /root/.cache/pip \
+    && rm -rf /tmp/* /var/tmp/* \
+    && find /usr/local/lib/python3.11 -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
+    && find /usr/local/lib/python3.11 -type f -name "*.pyc" -delete 2>/dev/null || true
 
-# Install PyTorch with CUDA support (works on both CPU and GPU)
-# اگر GPU نباشد، از CPU استفاده می‌کند
-RUN pip install --no-cache-dir \
-    torch==2.1.2 \
-    torchvision==0.16.2 \
-    torchaudio==2.1.2 \
-    --index-url https://download.pytorch.org/whl/cu121
-
-# Install other Python packages
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
 COPY . .
 
-# Create directories
 RUN mkdir -p /app/yolo_models /app/logs /tmp/wvc_photos
 
-# Environment variables
 ENV PYTHONUNBUFFERED=1
 
 CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info"]

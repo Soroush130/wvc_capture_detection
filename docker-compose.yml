@@ -1,6 +1,4 @@
 # docker-compose.yml
-# این فایل در لوکال و سرور (بدون GPU settings) استفاده می‌شود
-
 version: '3.8'
 
 services:
@@ -39,7 +37,7 @@ services:
       - capture_network
     restart: unless-stopped
 
-  # ==================== CAPTURE WORKERS (همیشه CPU) ====================
+  # ==================== CAPTURE WORKERS ====================
   celery-worker-capture-1:
     build:
       context: .
@@ -80,7 +78,7 @@ services:
       - capture_network
     restart: unless-stopped
 
-  # ==================== DETECTION WORKERS (پیش‌فرض CPU) ====================
+  # ==================== DETECTION WORKERS ====================
   celery-worker-detection-1:
     build:
       context: .
@@ -93,7 +91,7 @@ services:
       - .env
     environment:
       - WORKER_NAME=detection1
-      - YOLO_DEVICE=cpu  # پیش‌فرض CPU (در لوکال)
+      - YOLO_DEVICE=cpu
     depends_on:
       redis:
         condition: service_healthy
@@ -113,7 +111,7 @@ services:
       - .env
     environment:
       - WORKER_NAME=detection2
-      - YOLO_DEVICE=cpu  # پیش‌فرض CPU (در لوکال)
+      - YOLO_DEVICE=cpu
     depends_on:
       redis:
         condition: service_healthy
