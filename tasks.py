@@ -1,23 +1,49 @@
+# tasks.py
 from celery import group, chord
 from celery_app import app
 from capture.capture_utils import capture
 from detection.detection_utils import detect_objects
-from models.models import Camera, City, State, db, Photo, DetectedObject
+from models.db_operations import (
+    ensure_connection,
+    safe_close_connection,
+    get_camera_by_id,
+    get_active_cameras_for_capture,
+    get_undetected_photos,
+    update_photo_detection,
+    save_detected_objects
+)
 from logger_config import get_logger
 from datetime import datetime
-import redis
-import os
 
 logger = get_logger(__name__)
 
 
+# ==================== CAPTURE TASKS ====================
 @app.task(bind=True, max_retries=2, queue='capture')
 def capture_single_camera(self, camera_id):
+    """
+    Capture a single photo from a camera
+
+    Args:
+        camera_id: ID of the camera
+
+    Returns:
+        Dictionary with capture result
+    """
     try:
-        if db.is_closed():
-            db.connect()
-        camera = Camera.get_by_id(camera_id)
+        # Get camera from database
+        camera = get_camera_by_id(camera_id)
+
+        if not camera:
+            logger.error(f"❌ Camera {camera_id} not found")
+            return {
+                'camera_id': camera_id,
+                'status': 'not_found'
+            }
+
+        # Capture photo
         result = capture(camera)
+
         if result and result.get('success'):
             logger.info(f"✅ Success: {camera.name}")
             return {
@@ -28,22 +54,35 @@ def capture_single_camera(self, camera_id):
         else:
             logger.warning(f"⚠️ Failed: {camera.name}, retrying...")
             raise self.retry(countdown=5)
-    except Camera.DoesNotExist:
-        logger.error(f"❌ Camera {camera_id} not found")
-        return {'camera_id': camera_id, 'status': 'not_found'}
+
     except self.MaxRetriesExceededError:
-        logger.error(f"❌ Max retries for camera {camera_id}")
-        return {'camera_id': camera_id, 'status': 'failed_after_retries'}
+        logger.error(f"❌ Max retries exceeded for camera {camera_id}")
+        return {
+            'camera_id': camera_id,
+            'status': 'failed_after_retries'
+        }
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
-        return {'camera_id': camera_id, 'status': 'error'}
-    finally:
-        if not db.is_closed():
-            db.close()
+        logger.error(f"❌ Error capturing camera {camera_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'camera_id': camera_id,
+            'status': 'error',
+            'error': str(e)
+        }
 
 
 @app.task(queue='capture')
 def summarize_capture_results(results):
+    """
+    Summarize capture results and log statistics
+
+    Args:
+        results: List of capture result dictionaries
+
+    Returns:
+        Summary dictionary
+    """
     try:
         total = len(results)
         success = sum(1 for r in results if r.get('status') == 'success')
@@ -59,6 +98,7 @@ def summarize_capture_results(results):
         logger.info(f"❌ Failed: {failed} ({100 - success_rate:.1f}%)")
         logger.info("=" * 80)
 
+        # Failure breakdown
         not_found = sum(1 for r in results if r.get('status') == 'not_found')
         max_retries = sum(1 for r in results if r.get('status') == 'failed_after_retries')
         errors = sum(1 for r in results if r.get('status') == 'error')
@@ -86,24 +126,23 @@ def summarize_capture_results(results):
 
     except Exception as e:
         logger.error(f"❌ Error summarizing results: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {'error': str(e)}
 
 
 @app.task(queue='capture')
 def schedule_camera_captures():
+    """
+    Schedule capture tasks for all active cameras
+    Uses chord to run captures in parallel and summarize results
+
+    Returns:
+        Dictionary with scheduling result
+    """
     try:
-        if db.is_closed():
-            db.connect()
-
-        cameras = list(
-            Camera
-            .select(Camera.id)
-            .join(City)
-            .join(State)
-            .where(State.is_active == True)
-        )
-
-        camera_ids = [c.id for c in cameras]
+        # Get active camera IDs
+        camera_ids = get_active_cameras_for_capture()
 
         logger.info("=" * 80)
         logger.info(f"🚀 Starting capture cycle for {len(camera_ids)} cameras")
@@ -111,222 +150,182 @@ def schedule_camera_captures():
 
         if not camera_ids:
             logger.warning("⚠️ No active cameras found")
-            return {'scheduled': 0, 'error': 'No cameras'}
+            return {
+                'scheduled': 0,
+                'error': 'No active cameras'
+            }
 
+        # Create chord: parallel captures + summary callback
         job = chord(
             (capture_single_camera.s(camera_id) for camera_id in camera_ids),
             summarize_capture_results.s()
         )
 
+        # Execute asynchronously
         job.apply_async()
 
         logger.info(f"✅ Scheduled {len(camera_ids)} capture tasks")
 
-        return {'scheduled': len(camera_ids)}
+        return {
+            'scheduled': len(camera_ids),
+            'timestamp': datetime.now().isoformat()
+        }
 
     except Exception as e:
         logger.error(f"❌ Error scheduling captures: {e}")
-        return {'error': str(e)}
-    finally:
-        if not db.is_closed():
-            db.close()
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'error': str(e),
+            'scheduled': 0
+        }
 
 
+# ==================== DETECTION TASKS ====================
 @app.task(bind=True, max_retries=2, queue='detection')
 def detect_single_photo(self, photo_id: int, s3_key: str):
+    """
+    Detect objects in a single photo
+
+    Args:
+        photo_id: ID of the photo in database
+        s3_key: S3 key of the photo
+
+    Returns:
+        Dictionary with detection results
+    """
     try:
-        if db.is_closed():
-            db.connect()
+        logger.info(f"🔍 Starting detection for photo {photo_id}")
 
-        photo = Photo.get_by_id(photo_id)
-
+        # Detect objects
         result = detect_objects(photo_id, s3_key)
 
-        if result:
-            photo.has_detected_objects = result['has_detected_objects']
-            photo.car_count_above_system_confidence = result['counts']['car_above']
-            photo.car_count_below_system_confidence = result['counts']['car_below']
-            photo.truck_count_above_system_confidence = result['counts']['truck_above']
-            photo.truck_count_below_system_confidence = result['counts']['truck_below']
-            photo.person_count_above_system_confidence = result['counts']['person_above']
-            photo.person_count_below_system_confidence = result['counts']['person_below']
-            photo.deer_count_above_system_confidence = result['counts']['deer_above']
-            photo.deer_count_below_system_confidence = result['counts']['deer_below']
-            photo.detected_at = datetime.now()
-            photo.save()
-
-            for obj in result['detected_objects']:
-                DetectedObject.create(
-                    photo=photo,
-                    camera=photo.camera,
-                    state=photo.state,
-                    city=photo.city,
-                    road=photo.road,
-                    timezone=photo.timezone,
-                    name=obj['name'],
-                    image=obj['s3_key'] or 'objects/not-saved.jpg',
-                    conf=obj['confidence'],
-                    x=obj['x'],
-                    y=obj['y'],
-                    width=obj['width'],
-                    height=obj['height'],
-                    captured_at=photo.captured_at
-                )
-
-            logger.info(f"✅ Detected {len(result['detected_objects'])} objects in photo {photo_id}")
+        if result is None:
+            logger.error(f"❌ Detection failed for photo {photo_id}")
             return {
                 'photo_id': photo_id,
-                'status': 'success',
-                'objects_count': len(result['detected_objects'])
+                'status': 'error',
+                'message': 'Detection failed'
             }
-        else:
-            logger.warning(f"⚠️ Detection failed for photo {photo_id}")
-            raise self.retry(countdown=10)
 
-    except Photo.DoesNotExist:
-        logger.error(f"❌ Photo {photo_id} not found")
-        return {'photo_id': photo_id, 'status': 'not_found'}
-    except self.MaxRetriesExceededError:
-        logger.error(f"❌ Max retries for photo {photo_id}")
-        return {'photo_id': photo_id, 'status': 'failed_after_retries'}
+        # Update photo detection results in database
+        update_success = update_photo_detection(
+            photo_id=photo_id,
+            counts=result['counts'],
+            has_detected_objects=result['has_detected_objects']
+        )
+
+        if not update_success:
+            logger.error(f"❌ Failed to update database for photo {photo_id}")
+            return {
+                'photo_id': photo_id,
+                'status': 'error',
+                'message': 'Database update failed'
+            }
+
+        # Save detected objects to database
+        if result['detected_objects']:
+            save_success = save_detected_objects(
+                photo_id=photo_id,
+                detected_objects=result['detected_objects']
+            )
+
+            if not save_success:
+                logger.warning(f"⚠️ Failed to save detected objects for photo {photo_id}")
+
+        # Log completion
+        logger.info(
+            f"✅ Detection complete for photo {photo_id}: "
+            f"{result['total_objects_detected']} objects | "
+            f"Raw: {result['total_raw_detections']} | "
+            f"Classes: {result['classes_detected']} | "
+            f"has_objects: {result['has_detected_objects']}"
+        )
+
+        return {
+            'photo_id': photo_id,
+            'status': 'success',
+            'detected_objects': result['total_objects_detected'],
+            'raw_detections': result['total_raw_detections'],
+            'classes': result['classes_detected'],
+            'has_detected_objects': result['has_detected_objects'],
+            'counts': result['counts']
+        }
+
     except Exception as e:
         logger.error(f"❌ Error detecting photo {photo_id}: {e}")
-        return {'photo_id': photo_id, 'status': 'error'}
-    finally:
-        if not db.is_closed():
-            db.close()
+        import traceback
+        logger.error(traceback.format_exc())
+
+        # Retry with exponential backoff
+        raise self.retry(exc=e, countdown=60)
 
 
 @app.task(queue='detection')
 def schedule_photo_detection():
+    """
+    Schedule detection tasks for undetected photos
+    This task runs every minute via Celery Beat
+
+    Returns:
+        Dictionary with scheduling result
+    """
     try:
-        r = redis.Redis(
-            host=os.getenv('REDIS_HOST', 'localhost'),
-            port=int(os.getenv('REDIS_PORT', 6379)),
-            db=int(os.getenv('REDIS_DB', 0)),
-            decode_responses=False
-        )
+        logger.info("📸 Checking for undetected photos...")
 
-        keys = r.keys(b'photos:*')
-        logger.info(f"📋 Found {len(keys)} photos in Redis")
+        # Get undetected photos
+        photos = get_undetected_photos(limit=100)
 
-        if not keys:
-            return {'detected': 0}
+        if not photos:
+            logger.info("✅ No undetected photos found")
+            return {
+                'status': 'success',
+                'photos_scheduled': 0,
+                'message': 'No undetected photos'
+            }
 
-        if db.is_closed():
-            db.connect()
+        logger.info(f"📊 Found {len(photos)} undetected photos, scheduling detection tasks...")
 
-        tasks_list = []
-        processed = 0
-        skipped_binary = 0
-        skipped_invalid = 0
-        skipped_not_found = 0
-        skipped_already_detected = 0
-
-        for key in keys:
+        # Schedule detection task for each photo
+        scheduled_count = 0
+        for photo in photos:
             try:
-                processed += 1
-                value = r.get(key)
-
-                if not value:
-                    continue
-
-                try:
-                    s3_url = value.decode('utf-8')
-                except UnicodeDecodeError:
-                    logger.warning(f"⚠️ Skipping binary data in key: {key.decode('utf-8')}")
-                    r.delete(key)
-                    skipped_binary += 1
-                    continue
-
-                if not s3_url.startswith('http'):
-                    logger.warning(f"⚠️ Invalid URL in key: {key.decode('utf-8')}")
-                    r.delete(key)
-                    skipped_invalid += 1
-                    continue
-
-                # ✅ حذف query parameters از URL
-                from urllib.parse import urlparse
-
-                parsed_url = urlparse(s3_url)
-                # فقط path بدون query parameters
-                clean_path = parsed_url.path
-
-                # حذف leading slash
-                if clean_path.startswith('/'):
-                    clean_path = clean_path[1:]
-
-                # حذف 'uploads/' اگر وجود داشت
-                if clean_path.startswith('uploads/'):
-                    s3_key = clean_path.replace('uploads/', '', 1)
-                else:
-                    s3_key = clean_path
-
-                if processed <= 5:
-                    logger.info(f"🔍 DEBUG: s3_url = {s3_url}")
-                    logger.info(f"🔍 DEBUG: clean s3_key = {s3_key}")
-
-                filename = key.decode('utf-8').split(':')[-1]
-
-                # جستجوی Photo
-                photo = Photo.select().where(
-                    Photo.file == s3_key
-                ).first()
-
-                if not photo:
-                    if processed <= 5:
-                        logger.warning(f"⚠️ Photo not found in DB: {s3_key}")
-                    skipped_not_found += 1
-                    continue
-
-                # چک detected_at
-                if photo.detected_at is not None:
-                    skipped_already_detected += 1
-                    continue
-
-                tasks_list.append(detect_single_photo.s(photo.id, s3_key))
-
+                detect_single_photo.apply_async(
+                    args=[photo['id'], photo['s3_key']],
+                    queue='detection'
+                )
+                scheduled_count += 1
             except Exception as e:
-                logger.error(f"❌ Error processing key {key}: {e}")
-                continue
+                logger.error(f"❌ Failed to schedule detection for photo {photo['id']}: {e}")
 
-        logger.info("=" * 80)
-        logger.info(f"📊 Detection Scheduling Summary:")
-        logger.info(f"  Total in Redis: {len(keys)}")
-        logger.info(f"  Processed: {processed}")
-        logger.info(f"  Skipped (binary): {skipped_binary}")
-        logger.info(f"  Skipped (invalid URL): {skipped_invalid}")
-        logger.info(f"  Skipped (not found in DB): {skipped_not_found}")
-        logger.info(f"  Skipped (already detected): {skipped_already_detected}")
-        logger.info(f"  ✅ Scheduled for detection: {len(tasks_list)}")
-        logger.info("=" * 80)
-
-        if tasks_list:
-            job = group(tasks_list)
-            job.apply_async()
-            logger.info(f"✅ Scheduled {len(tasks_list)} photos for detection")
+        logger.info(f"✅ Scheduled {scheduled_count} detection tasks")
 
         return {
-            'detected': len(tasks_list),
-            'skipped_not_found': skipped_not_found,
-            'skipped_already_detected': skipped_already_detected
+            'status': 'success',
+            'photos_scheduled': scheduled_count,
+            'total_found': len(photos),
+            'timestamp': datetime.now().isoformat()
         }
 
     except Exception as e:
-        logger.error(f"❌ Error scheduling detection: {e}")
-        return {'error': str(e)}
-    finally:
-        if not db.is_closed():
-            db.close()
-        if 'r' in locals():
-            r.close()
+        logger.error(f"❌ Error in schedule_photo_detection: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
 
 
+# ==================== TEST TASKS ====================
 @app.task(queue='capture')
 def run_scheduled_tests():
     """
     Run pytest tests and send report to Telegram
     Scheduled to run daily at midnight NY time
+
+    Returns:
+        Dictionary with test results
     """
     import subprocess
     import sys
@@ -341,13 +340,13 @@ def run_scheduled_tests():
         # Get project root directory
         project_root = Path(__file__).parent
 
-        # Run tests
+        # Run tests with timeout
         result = subprocess.run(
             [sys.executable, 'run_tests.py'],
             capture_output=True,
             text=True,
             cwd=str(project_root),
-            timeout=600
+            timeout=600  # 10 minutes timeout
         )
 
         # Parse results
@@ -355,7 +354,8 @@ def run_scheduled_tests():
             'return_code': result.returncode,
             'success': result.returncode == 0,
             'stdout_preview': result.stdout[:500] if result.stdout else '',
-            'stderr_preview': result.stderr[:500] if result.stderr else ''
+            'stderr_preview': result.stderr[:500] if result.stderr else '',
+            'timestamp': datetime.now().isoformat()
         }
 
         # Try to read test report JSON
@@ -372,36 +372,47 @@ def run_scheduled_tests():
             logger.warning(f"⚠️ Could not parse test report: {e}")
 
         # Log summary
-        if test_results['success']:
-            logger.info(f"✅ Tests PASSED - {test_results.get('passed', 0)}/{test_results.get('total', 0)}")
-        else:
-            logger.error(f"❌ Tests FAILED - {test_results.get('failed', 0)} failures")
-
         logger.info("=" * 80)
         logger.info("📊 TEST RUN SUMMARY")
         logger.info("=" * 80)
         logger.info(f"Status: {'✅ SUCCESS' if test_results['success'] else '❌ FAILED'}")
+
         if 'total' in test_results:
             logger.info(f"Total: {test_results['total']}")
             logger.info(f"Passed: {test_results['passed']}")
             logger.info(f"Failed: {test_results['failed']}")
             logger.info(f"Skipped: {test_results['skipped']}")
+
         logger.info("=" * 80)
 
         return test_results
 
     except subprocess.TimeoutExpired:
         logger.error("❌ Test run timed out after 10 minutes")
-        return {'error': 'timeout', 'success': False}
+        return {
+            'error': 'timeout',
+            'success': False,
+            'timestamp': datetime.now().isoformat()
+        }
     except Exception as e:
         logger.error(f"❌ Error running tests: {e}")
-        return {'error': str(e), 'success': False}
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            'error': str(e),
+            'success': False,
+            'timestamp': datetime.now().isoformat()
+        }
 
 
 @app.task(queue='capture')
 def run_tests_with_summary():
     """
     Run tests and return detailed summary
+    Wrapper around run_scheduled_tests
+
+    Returns:
+        Dictionary with test summary
     """
     try:
         result = run_scheduled_tests()
@@ -416,6 +427,8 @@ def run_tests_with_summary():
 
     except Exception as e:
         logger.error(f"❌ Error in test summary: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'status': 'error',

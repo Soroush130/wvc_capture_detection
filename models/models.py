@@ -7,7 +7,6 @@ import pytz
 
 load_dotenv()
 
-# حذف DatabaseManager و استفاده مستقیم از Peewee
 db = PostgresqlDatabase(
     os.getenv("DB_NAME"),
     user=os.getenv("DB_USER"),
