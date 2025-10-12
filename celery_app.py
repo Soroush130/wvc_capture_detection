@@ -1,5 +1,6 @@
 # celery_app.py
 from celery import Celery
+from celery.schedules import crontab
 import os
 from dotenv import load_dotenv
 
@@ -15,30 +16,72 @@ app = Celery(
 CELERY_TIMEZONE = os.getenv('CELERY_TIMEZONE', 'America/New_York')
 
 app.conf.update(
+    # ==================== Serialization ====================
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
 
+    # ==================== Timezone ====================
     timezone=CELERY_TIMEZONE,
-    enable_utc=True,
+    enable_utc=False,
 
-    task_time_limit=600,
-    task_soft_time_limit=570,
-    task_acks_late=True,
+    # ==================== Task Limits ====================
+    task_time_limit=1800,
+    task_soft_time_limit=1680,
 
+    # ==================== Memory & Performance ====================
     worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=1000,
+    worker_max_tasks_per_child=10,
+    worker_disable_rate_limits=True,
 
+    # ==================== Task Reliability ====================
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_track_started=True,
+
+    # ==================== Result Settings ====================
     result_expires=3600,
+    result_persistent=False,
+
+    # ==================== Broker Settings ====================
+    broker_connection_retry_on_startup=True,
+
+    # ==================== Queue Configuration ====================
+    task_default_queue='capture',
+    task_routes={
+        'tasks.capture_single_camera': {'queue': 'capture'},
+        'tasks.summarize_capture_results': {'queue': 'capture'},
+        'tasks.schedule_camera_captures': {'queue': 'capture'},
+        'tasks.detect_single_photo': {'queue': 'detection'},
+        'tasks.schedule_photo_detection': {'queue': 'detection'},
+        'tasks.run_scheduled_tests': {'queue': 'capture'},
+    },
 )
 
+# ==================== BEAT SCHEDULE ====================
 app.conf.beat_schedule = {
     'capture-every-5-minutes': {
         'task': 'tasks.schedule_camera_captures',
-        'schedule': 300.0,
+        'schedule': crontab(minute='*/5'),
+        'options': {
+            'expires': 300,
+            'queue': 'capture',
+        }
     },
-    'detect-every-2-minute': {
+    'detect-photos-every-2-minute': {
         'task': 'tasks.schedule_photo_detection',
-        'schedule': 120.0,
+        'schedule': crontab(minute='*/2'),
+        'options': {
+            'expires': 120,
+            'queue': 'detection',
+        }
+    },
+    'run-tests-daily-midnight': {
+        'task': 'tasks.run_scheduled_tests',
+        'schedule': crontab(hour=0, minute=0),
+        'options': {
+            'expires': 3600,
+            'queue': 'capture',
+        }
     },
 }

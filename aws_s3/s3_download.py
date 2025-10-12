@@ -4,6 +4,7 @@ import tempfile
 from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
+from aws_s3.s3_utils import _with_allowed_prefix
 from logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -15,13 +16,6 @@ PREFIX = os.getenv("AWS_LOCATION", "uploads").strip("/")
 
 def get_s3_client():
     return boto3.client("s3", region_name=AWS_REGION)
-
-
-def _with_allowed_prefix(s3_key: str) -> str:
-    s3_key = s3_key.lstrip("/")
-    if not s3_key.startswith(PREFIX + "/"):
-        s3_key = f"{PREFIX}/{s3_key}"
-    return s3_key
 
 
 def download_from_s3(s3_key: str) -> Optional[str]:

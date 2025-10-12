@@ -13,15 +13,18 @@ AWS_REGION = os.getenv("AWS_S3_REGION_NAME", "us-east-1")
 BUCKET = os.getenv("AWS_STORAGE_BUCKET_NAME", os.getenv("AWS_S3_BUCKET_NAME", "wvcbucket"))
 PREFIX = os.getenv("AWS_LOCATION", "uploads").strip("/")
 
+
 def get_s3_client():
     # Works with either IAM role (no keys) or keys from env
     return boto3.client("s3", region_name=AWS_REGION)
+
 
 def _with_allowed_prefix(s3_key: str) -> str:
     s3_key = s3_key.lstrip("/")
     if not s3_key.startswith(PREFIX + "/"):
         s3_key = f"{PREFIX}/{s3_key}"
     return s3_key
+
 
 def upload_to_s3(file_data: bytes, s3_key: str, content_type: str = "image/jpeg") -> tuple[bool, str]:
     """
@@ -63,14 +66,17 @@ def upload_to_s3(file_data: bytes, s3_key: str, content_type: str = "image/jpeg"
 
 
 def delete_from_s3(s3_key: str) -> bool:
-    try:
-        s3_client = get_s3_client()
+    """Delete file from S3"""
+    s3_client = get_s3_client()
+    s3_key = _with_allowed_prefix(s3_key)
+
+    try:  # ✅ اضافه کردن try-except
         s3_client.delete_object(
             Bucket=AWS_S3_BUCKET_NAME,
             Key=s3_key
         )
-        logger.info(f"🗑️ Deleted from S3: {s3_key}")
+        logger.info(f"✅ Deleted from S3: {s3_key}")
         return True
-    except ClientError as e:
-        logger.error(f"❌ S3 delete error: {e}")
+    except Exception as e:  # ✅ handle کردن exception
+        logger.error(f"❌ Failed to delete from S3: {s3_key}, Error: {e}")
         return False

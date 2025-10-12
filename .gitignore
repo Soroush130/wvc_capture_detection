@@ -237,3 +237,6 @@ yarn.lock
 *.key
 ssl/
 certs/
+
+test_report.json
+coverage.json

@@ -11,7 +11,7 @@ import os
 logger = get_logger(__name__)
 
 
-@app.task(bind=True, max_retries=2)
+@app.task(bind=True, max_retries=2, queue='capture')
 def capture_single_camera(self, camera_id):
     try:
         if db.is_closed():
@@ -42,9 +42,8 @@ def capture_single_camera(self, camera_id):
             db.close()
 
 
-@app.task
+@app.task(queue='capture')
 def summarize_capture_results(results):
-
     try:
         total = len(results)
         success = sum(1 for r in results if r.get('status') == 'success')
@@ -90,7 +89,7 @@ def summarize_capture_results(results):
         return {'error': str(e)}
 
 
-@app.task
+@app.task(queue='capture')
 def schedule_camera_captures():
     try:
         if db.is_closed():
@@ -133,7 +132,7 @@ def schedule_camera_captures():
             db.close()
 
 
-@app.task(bind=True, max_retries=2)
+@app.task(bind=True, max_retries=2, queue='detection')
 def detect_single_photo(self, photo_id: int, s3_key: str):
     try:
         if db.is_closed():
@@ -198,7 +197,7 @@ def detect_single_photo(self, photo_id: int, s3_key: str):
             db.close()
 
 
-@app.task
+@app.task(queue='detection')
 def schedule_photo_detection():
     try:
         r = redis.Redis(
@@ -321,3 +320,104 @@ def schedule_photo_detection():
             db.close()
         if 'r' in locals():
             r.close()
+
+
+@app.task(queue='capture')
+def run_scheduled_tests():
+    """
+    Run pytest tests and send report to Telegram
+    Scheduled to run daily at midnight NY time
+    """
+    import subprocess
+    import sys
+    import json
+    from pathlib import Path
+
+    try:
+        logger.info("=" * 80)
+        logger.info("🧪 Starting scheduled test run")
+        logger.info("=" * 80)
+
+        # Get project root directory
+        project_root = Path(__file__).parent
+
+        # Run tests
+        result = subprocess.run(
+            [sys.executable, 'run_tests.py'],
+            capture_output=True,
+            text=True,
+            cwd=str(project_root),
+            timeout=600
+        )
+
+        # Parse results
+        test_results = {
+            'return_code': result.returncode,
+            'success': result.returncode == 0,
+            'stdout_preview': result.stdout[:500] if result.stdout else '',
+            'stderr_preview': result.stderr[:500] if result.stderr else ''
+        }
+
+        # Try to read test report JSON
+        try:
+            report_file = project_root / 'test_report.json'
+            if report_file.exists():
+                with open(report_file, 'r', encoding='utf-8') as f:
+                    report = json.load(f)
+                    test_results['total'] = report['summary']['total']
+                    test_results['passed'] = report['summary'].get('passed', 0)
+                    test_results['failed'] = report['summary'].get('failed', 0)
+                    test_results['skipped'] = report['summary'].get('skipped', 0)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not parse test report: {e}")
+
+        # Log summary
+        if test_results['success']:
+            logger.info(f"✅ Tests PASSED - {test_results.get('passed', 0)}/{test_results.get('total', 0)}")
+        else:
+            logger.error(f"❌ Tests FAILED - {test_results.get('failed', 0)} failures")
+
+        logger.info("=" * 80)
+        logger.info("📊 TEST RUN SUMMARY")
+        logger.info("=" * 80)
+        logger.info(f"Status: {'✅ SUCCESS' if test_results['success'] else '❌ FAILED'}")
+        if 'total' in test_results:
+            logger.info(f"Total: {test_results['total']}")
+            logger.info(f"Passed: {test_results['passed']}")
+            logger.info(f"Failed: {test_results['failed']}")
+            logger.info(f"Skipped: {test_results['skipped']}")
+        logger.info("=" * 80)
+
+        return test_results
+
+    except subprocess.TimeoutExpired:
+        logger.error("❌ Test run timed out after 10 minutes")
+        return {'error': 'timeout', 'success': False}
+    except Exception as e:
+        logger.error(f"❌ Error running tests: {e}")
+        return {'error': str(e), 'success': False}
+
+
+@app.task(queue='capture')
+def run_tests_with_summary():
+    """
+    Run tests and return detailed summary
+    """
+    try:
+        result = run_scheduled_tests()
+
+        summary = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'status': 'success' if result.get('success') else 'failed',
+            'results': result
+        }
+
+        return summary
+
+    except Exception as e:
+        logger.error(f"❌ Error in test summary: {e}")
+        return {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'status': 'error',
+            'error': str(e)
+        }

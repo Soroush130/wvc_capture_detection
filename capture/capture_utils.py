@@ -2,10 +2,11 @@ from typing import Tuple, Union, Optional
 import os
 import cv2
 import redis
+import requests
 
 from utility import time_now_in_timezone
 from settings import MONITOR_CAPTURE_TIMEOUT
-from models.models import Camera
+from models.models import Camera, Photo
 from logger_config import get_logger
 from aws_s3.s3_utils import upload_to_s3
 
