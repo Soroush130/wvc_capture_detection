@@ -39,10 +39,16 @@ server-up:
 server-down:
 	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml down
 
-server-logs:
-	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f celery-worker-detection-1
+server-logs-capture:
+	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f celery-worker-capture-1 celery-worker-capture-2
 
-server-restart:
+server-logs-detection:
+	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml logs -f celery-worker-detection-1 celery-worker-detection-2
+
+server-restart-capture:
+	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml restart celery-worker-capture-1 celery-worker-capture-2
+
+server-restart-detection:
 	docker-compose -f docker-compose.yml -f docker-compose.gpu.yml restart celery-worker-detection-1 celery-worker-detection-2
 
 server-gpu-test:

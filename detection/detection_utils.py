@@ -67,7 +67,7 @@ def log_gpu_memory(device: str, step: str = ""):
 
 
 # ==================== CLASS CONFIGURATION ====================
-MIN_CONFIDENCE = 0.80
+MIN_CONFIDENCE = 0.75
 
 CLASS_CONFIG = {
     # ==================== VEHICLES ====================
@@ -215,7 +215,7 @@ def detect_objects(photo_id: int, s3_key: str) -> Optional[Dict]:
         results: List[Results] = model.predict(
             local_path,
             device=_device,
-            conf=0.60,  # Low threshold - we'll filter per-class later
+            conf=0.01,  # Low threshold - we'll filter per-class later
             verbose=False
         )
 
