@@ -21,7 +21,6 @@ SAVE_DETECTED_OBJECTS = os.getenv('SAVE_DETECTED_OBJECTS', 'True').lower() == 't
 def detect_gpu():
     """
     Detect available GPU and return device
-    این تابع خودکار CPU یا GPU را تشخیص می‌دهد
     """
     if YOLO_DEVICE.lower() == 'cpu':
         logger.info("🖥️ YOLO_DEVICE set to CPU (forced)")
@@ -36,7 +35,7 @@ def detect_gpu():
 
     # Get GPU info
     gpu_count = torch.cuda.device_count()
-    logger.info(f"🎮 Found {gpu_count} GPU(s)")
+    logger.info(f"===>>> Found {gpu_count} GPU(s)")
 
     for i in range(gpu_count):
         gpu_name = torch.cuda.get_device_name(i)
@@ -54,9 +53,10 @@ def detect_gpu():
     logger.info(f"✅ Using device: {device}")
     return device
 
+
 def log_gpu_memory(device: str, step: str = ""):
     """Log GPU memory usage"""
-    if device.startswith('cuda'):
+    if device and device.startswith('cuda'):
         try:
             gpu_id = int(device.split(':')[1]) if ':' in device else 0
             allocated = torch.cuda.memory_allocated(gpu_id) / 1024 ** 3
@@ -68,6 +68,7 @@ def log_gpu_memory(device: str, step: str = ""):
 
 # ==================== CLASS CONFIGURATION ====================
 MIN_CONFIDENCE = 0.80
+
 CLASS_CONFIG = {
     # ==================== VEHICLES ====================
     'car': {
@@ -141,6 +142,8 @@ CLASS_CONFIG = {
     },
 }
 
+CLASS_NAMES = CLASS_CONFIG
+
 # Global model and device
 _model = None
 _device = None
@@ -165,7 +168,7 @@ def get_yolo_model():
         logger.info(f"✅ Model loaded on {_device}")
 
         # Log memory usage if GPU
-        if _device.startswith('cuda'):
+        if _device and _device.startswith('cuda'):  # Safe check
             log_gpu_memory(_device, "after model load")
 
     return _model
@@ -197,11 +200,16 @@ def detect_objects(photo_id: int, s3_key: str) -> Optional[Dict]:
         # Get model
         model = get_yolo_model()
 
+        # Check if device is initialized
+        if _device is None:
+            logger.error(f"❌ Device not initialized for photo {photo_id}")
+            return None
+
         # Detection with low threshold to catch everything
         logger.info(f"🔍 Detecting objects in photo {photo_id} on {_device}")
 
-        # Log GPU memory before inference
-        if _device.startswith('cuda'):
+        # Safe GPU memory logging
+        if _device and _device.startswith('cuda'):
             log_gpu_memory(_device, "before inference")
 
         results: List[Results] = model.predict(
@@ -211,8 +219,8 @@ def detect_objects(photo_id: int, s3_key: str) -> Optional[Dict]:
             verbose=False
         )
 
-        # Log GPU memory after inference
-        if _device.startswith('cuda'):
+        # Safe GPU memory logging
+        if _device and _device.startswith('cuda'):
             log_gpu_memory(_device, "after inference")
 
         if not results:

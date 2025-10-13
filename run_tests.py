@@ -16,17 +16,11 @@ def run_tests():
 
     start_time = time.time()
 
-    # Run pytest
+    # Run pytest - همه config از pytest.ini می‌آید
     result = subprocess.run(
         [
             sys.executable, '-m', 'pytest',
-            '-v',
-            '--tb=short',
-            '--cov=.',
-            '--cov-report=term-missing',
-            '--cov-report=json:coverage.json',
-            '--json-report',
-            '--json-report-file=test_report.json',
+            'tests/',  # فقط مسیر tests را می‌دهیم
         ],
         capture_output=True,
         text=True
@@ -66,7 +60,7 @@ def run_tests():
             'success': result.returncode == 0,
             'status': 'SUCCESS ✅' if result.returncode == 0 else 'FAILED ❌',
             'errors': [],
-            'error_details': []  # ✅ اضافه شد برای جزئیات خطا
+            'error_details': []
         }
 
         # Collect failed test names and details
@@ -76,7 +70,7 @@ def run_tests():
                     test_name = test['nodeid']
                     results['errors'].append(test_name)
 
-                    # ✅ Extract error details
+                    # Extract error details
                     error_detail = {
                         'test': test_name,
                         'message': '',
@@ -101,7 +95,7 @@ def run_tests():
                         if not error_detail['message'] and isinstance(longrepr, str):
                             for line in longrepr.split('\n'):
                                 if line.strip() and ('assert' in line.lower() or 'error' in line.lower()):
-                                    error_detail['message'] = line.strip()[:200]  # First 200 chars
+                                    error_detail['message'] = line.strip()[:200]
                                     break
 
                     # Fallback to short representation
@@ -114,6 +108,9 @@ def run_tests():
 
     except Exception as e:
         print(f"\n❌ Error parsing test results: {e}")
+        import traceback
+        print(traceback.format_exc())
+
         return {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'duration': duration,
