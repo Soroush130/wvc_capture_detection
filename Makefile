@@ -12,6 +12,9 @@ help:
 	@echo "  make server-up      - Start server services"
 	@echo "  make server-down    - Stop server services"
 	@echo "  make server-logs    - View server logs"
+	@echo ""
+	@echo "  make bot-logs       - View telegram bot logs"
+	@echo "  make bot-restart    - Restart telegram bot"
 
 # ==================== LOCAL (CPU) ====================
 local-build:
@@ -54,7 +57,34 @@ server-restart-detection:
 server-gpu-test:
 	docker-compose exec celery-worker-detection-1 nvidia-smi
 
+# ==================== TELEGRAM BOT ====================
+bot-logs:
+	docker-compose logs -f telegram-bot
+
+bot-restart:
+	docker-compose restart telegram-bot
+
+bot-stop:
+	docker-compose stop telegram-bot
+
+bot-start:
+	docker-compose start telegram-bot
+
+bot-rebuild:
+	docker-compose build --no-cache telegram-bot
+	docker-compose up -d telegram-bot
+
 # ==================== BOTH ====================
 clean:
 	docker-compose down -v
 	docker system prune -af
+
+# ==================== USEFUL SHORTCUTS ====================
+logs-all:
+	docker-compose logs -f
+
+ps:
+	docker-compose ps
+
+restart-all:
+	docker-compose restart
