@@ -332,6 +332,12 @@ def run_scheduled_tests():
     Returns:
         Dictionary with test results and system info
     """
+    import subprocess
+    import sys
+    import json
+    import psutil
+    from pathlib import Path
+
     try:
         logger.info("=" * 80)
         logger.info("🧪 Starting scheduled test run")
@@ -395,7 +401,7 @@ def run_scheduled_tests():
             test_results['system_info'] = {
                 'cpu_percent': psutil.cpu_percent(interval=1),
                 'memory_percent': psutil.virtual_memory().percent,
-                'memory_available_gb': psutil.virtual_memory().available / (1024 ** 3),
+                'memory_available_gb': round(psutil.virtual_memory().available / (1024 ** 3), 2),
                 'disk_percent': psutil.disk_usage('/').percent,
             }
 
@@ -405,7 +411,10 @@ def run_scheduled_tests():
                 if torch.cuda.is_available():
                     gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
                     gpu_used = torch.cuda.memory_allocated(0) / (1024 ** 3)
+                    gpu_name = torch.cuda.get_device_name(0)
+
                     test_results['system_info']['gpu_available'] = True
+                    test_results['system_info']['gpu_name'] = gpu_name
                     test_results['system_info']['gpu_memory_total_gb'] = round(gpu_memory, 2)
                     test_results['system_info']['gpu_memory_used_gb'] = round(gpu_used, 2)
                 else:
@@ -419,7 +428,7 @@ def run_scheduled_tests():
         # Add database stats
         try:
             from models.db_operations import ensure_connection
-            from models.models import Photo, Camera, DetectedObject
+            from models.models import Photo, Camera, DetectedObject, State, City
 
             ensure_connection()
 
@@ -427,9 +436,30 @@ def run_scheduled_tests():
                 'total_photos': Photo.select().count(),
                 'detected_photos': Photo.select().where(Photo.has_detected_objects == True).count(),
                 'total_cameras': Camera.select().count(),
-                'active_cameras': Camera.select().where(Camera.is_active == True).count(),
                 'total_objects': DetectedObject.select().count(),
             }
+
+            # ✅ Get cameras by state status (Camera → City → State)
+            try:
+                # Cameras in active states
+                active_cameras = Camera.select().join(City).join(State).where(State.is_active == True).count()
+                # Cameras in inactive states
+                inactive_cameras = Camera.select().join(City).join(State).where(State.is_active == False).count()
+
+                test_results['database_stats']['active_cameras'] = active_cameras
+                test_results['database_stats']['inactive_cameras'] = inactive_cameras
+            except Exception as e:
+                logger.warning(f"⚠️ Could not get camera status by state: {e}")
+
+            # Calculate detection rate
+            if test_results['database_stats']['total_photos'] > 0:
+                test_results['database_stats']['detection_rate'] = round(
+                    (test_results['database_stats']['detected_photos'] / test_results['database_stats'][
+                        'total_photos']) * 100, 2
+                )
+            else:
+                test_results['database_stats']['detection_rate'] = 0.0
+
         except Exception as e:
             logger.warning(f"⚠️ Could not get database stats: {e}")
             test_results['database_stats'] = {'error': str(e)}
@@ -446,9 +476,19 @@ def run_scheduled_tests():
                 (Photo.has_detected_objects == True)
             ).count()
 
+            # Last 24 hours
+            twenty_four_hours_ago = datetime.now() - timedelta(hours=24)
+            photos_24h = Photo.select().where(Photo.created_at >= twenty_four_hours_ago).count()
+            detections_24h = Photo.select().where(
+                (Photo.created_at >= twenty_four_hours_ago) &
+                (Photo.has_detected_objects == True)
+            ).count()
+
             test_results['recent_activity'] = {
                 'photos_last_hour': recent_photos,
                 'detections_last_hour': recent_detections,
+                'photos_last_24h': photos_24h,
+                'detections_last_24h': detections_24h,
             }
         except Exception as e:
             logger.warning(f"⚠️ Could not get recent activity: {e}")

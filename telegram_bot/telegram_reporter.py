@@ -77,7 +77,12 @@ class TelegramReporter:
             lines.append(f"   📷 Total Photos:    {db_stats.get('total_photos', 0):,}")
             lines.append(f"   ✅ With Detections: {db_stats.get('detected_photos', 0):,}")
             lines.append(f"   📹 Total Cameras:   {db_stats.get('total_cameras', 0)}")
-            lines.append(f"   🟢 Active Cameras:  {db_stats.get('active_cameras', 0)}")
+
+            # ✅ Only show if available
+            if 'active_cameras' in db_stats:
+                lines.append(f"   🟢 Active States:   {db_stats.get('active_cameras', 0)}")
+                lines.append(f"   🔴 Inactive States: {db_stats.get('inactive_cameras', 0)}")
+
             lines.append(f"   🔍 Total Objects:   {db_stats.get('total_objects', 0):,}")
 
             # Detection rate

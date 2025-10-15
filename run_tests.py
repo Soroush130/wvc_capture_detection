@@ -50,7 +50,7 @@ def get_database_stats():
     """Get database statistics"""
     try:
         from models.db_operations import ensure_connection
-        from models.models import Photo, Camera, DetectedObject
+        from models.models import Photo, Camera, DetectedObject, State, City
 
         ensure_connection()
 
@@ -59,10 +59,22 @@ def get_database_stats():
             'detected_photos': Photo.select().where(Photo.has_detected_objects == True).count(),
             'undetected_photos': Photo.select().where(Photo.has_detected_objects == False).count(),
             'total_cameras': Camera.select().count(),
-            'active_cameras': Camera.select().where(Camera.is_active == True).count(),
-            'inactive_cameras': Camera.select().where(Camera.is_active == False).count(),
             'total_objects': DetectedObject.select().count(),
         }
+
+        # Get cameras by state status (Camera → City → State)
+        try:
+            # Cameras in active states
+            active_cameras = Camera.select().join(City).join(State).where(State.is_active == True).count()
+            # Cameras in inactive states
+            inactive_cameras = Camera.select().join(City).join(State).where(State.is_active == False).count()
+
+            db_stats['active_cameras'] = active_cameras
+            db_stats['inactive_cameras'] = inactive_cameras
+        except AttributeError as e:
+            # If relationship doesn't exist, just show total
+            print(f"⚠️  Could not get camera status by state: {e}")
+            pass
 
         # Calculate detection rate
         if db_stats['total_photos'] > 0:
@@ -297,10 +309,16 @@ def print_summary(results):
         print(f"   ✅ With Objects:   {db_stats.get('detected_photos', 0):,}")
         print(f"   ❌ Without:        {db_stats.get('undetected_photos', 0):,}")
         print(f"   📈 Detection Rate: {db_stats.get('detection_rate', 0):.1f}%")
+
+        # ✅ Updated camera display
         print(f"\n📹 Cameras:")
         print(f"   Total:             {db_stats.get('total_cameras', 0)}")
-        print(f"   🟢 Active:         {db_stats.get('active_cameras', 0)}")
-        print(f"   🔴 Inactive:       {db_stats.get('inactive_cameras', 0)}")
+
+        # Only show active/inactive if they exist
+        if 'active_cameras' in db_stats:
+            print(f"   🟢 In Active States:   {db_stats.get('active_cameras', 0)}")
+            print(f"   🔴 In Inactive States: {db_stats.get('inactive_cameras', 0)}")
+
         print(f"\n🔍 Total Objects:     {db_stats.get('total_objects', 0):,}")
 
     # Recent Activity
@@ -341,7 +359,6 @@ def print_summary(results):
         print("\n💡 Tip: Check test_report.json for full details")
 
     print("=" * 60)
-
 
 def main():
     """Main function"""
