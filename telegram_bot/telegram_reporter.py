@@ -72,21 +72,22 @@ class TelegramReporter:
         db_stats = results.get('database_stats', {})
         if db_stats and 'error' not in db_stats:
             lines.append("🗄️  Database Stats:")
-            lines.append(f"   📷 Total Photos:    {db_stats.get('total_photos', 0):,}")
-            lines.append(f"   ✅ With Detections: {db_stats.get('detected_photos', 0):,}")
-            lines.append(f"   📹 Total Cameras:   {db_stats.get('total_cameras', 0):,}")
+            lines.append(f"   📷 Total Photos:     {db_stats.get('total_photos', 0):,}")
+            lines.append(f"   📸 With Objects:     {db_stats.get('photos_with_detections', 0):,}")
+            lines.append(f"   📹 Total Cameras:    {db_stats.get('total_cameras', 0):,}")
 
             # Show active/inactive cameras
             if 'active_cameras' in db_stats:
                 lines.append(f"   🟢 Active Cameras:   {db_stats.get('active_cameras', 0):,}")
                 lines.append(f"   🔴 Inactive Cameras: {db_stats.get('inactive_cameras', 0):,}")
 
-            lines.append(f"   🔍 Total Objects:   {db_stats.get('total_objects', 0):,}")
+            # ✅ Show Total Detections
+            lines.append(f"   🔍 Total Detections: {db_stats.get('total_detections', 0):,}")
 
             # Detection rate
             if db_stats.get('total_photos', 0) > 0:
-                detection_rate = (db_stats.get('detected_photos', 0) / db_stats.get('total_photos', 0)) * 100
-                lines.append(f"   📈 Detection Rate:  {detection_rate:.1f}%")
+                detection_rate = db_stats.get('detection_rate', 0)
+                lines.append(f"   📈 Detection Rate:   {detection_rate:.1f}%")
 
             lines.append("")
 

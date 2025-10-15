@@ -349,7 +349,7 @@ def run_scheduled_tests():
             capture_output=True,
             text=True,
             cwd=str(project_root),
-            timeout=600  # 10 minutes timeout
+            timeout=600
         )
 
         end_time = datetime.now()
@@ -429,9 +429,9 @@ def run_scheduled_tests():
 
             test_results['database_stats'] = {
                 'total_photos': Photo.select().count(),
-                'detected_photos': Photo.select().where(Photo.has_detected_objects == True).count(),
+                'photos_with_detections': Photo.select().where(Photo.has_detected_objects == True).count(),
                 'total_cameras': Camera.select().count(),
-                'total_objects': DetectedObject.select().count(),
+                'total_detections': DetectedObject.select().count(),  # Total detected objects
             }
 
             # Get cameras by state status (Camera → City → State)
@@ -449,7 +449,7 @@ def run_scheduled_tests():
             # Calculate detection rate
             if test_results['database_stats']['total_photos'] > 0:
                 test_results['database_stats']['detection_rate'] = round(
-                    (test_results['database_stats']['detected_photos'] / test_results['database_stats'][
+                    (test_results['database_stats']['photos_with_detections'] / test_results['database_stats'][
                         'total_photos']) * 100, 2
                 )
             else:
@@ -461,7 +461,7 @@ def run_scheduled_tests():
 
         # Add today's activity
         try:
-            from models.models import Photo, State
+            from models.models import Photo, State, DetectedObject
             from datetime import timedelta
 
             # Get today's date range
@@ -469,16 +469,16 @@ def run_scheduled_tests():
             today_start = datetime.combine(today, datetime.min.time())
             today_end = datetime.combine(today, datetime.max.time())
 
-            # Today's photos and detections
+            # Today's photos
             photos_today = Photo.select().where(
                 (Photo.created_at >= today_start) &
                 (Photo.created_at <= today_end)
             ).count()
 
-            detections_today = Photo.select().where(
-                (Photo.created_at >= today_start) &
-                (Photo.created_at <= today_end) &
-                (Photo.has_detected_objects == True)
+            # Count actual DetectedObjects today
+            detections_today = DetectedObject.select().where(
+                (DetectedObject.created_at >= today_start) &
+                (DetectedObject.created_at <= today_end)
             ).count()
 
             # Get active states names

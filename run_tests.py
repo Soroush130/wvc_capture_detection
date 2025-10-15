@@ -56,10 +56,10 @@ def get_database_stats():
 
         db_stats = {
             'total_photos': Photo.select().count(),
-            'detected_photos': Photo.select().where(Photo.has_detected_objects == True).count(),
-            'undetected_photos': Photo.select().where(Photo.has_detected_objects == False).count(),
+            'photos_with_detections': Photo.select().where(Photo.has_detected_objects == True).count(),
+            'photos_without_detections': Photo.select().where(Photo.has_detected_objects == False).count(),
             'total_cameras': Camera.select().count(),
-            'total_objects': DetectedObject.select().count(),
+            'total_detections': DetectedObject.select().count(),  # ✅ Total detected objects
         }
 
         # Get cameras by state status (Camera → City → State)
@@ -76,10 +76,10 @@ def get_database_stats():
             print(f"⚠️  Could not get camera status by state: {e}")
             pass
 
-        # Calculate detection rate
+        # Calculate detection rate (based on photos)
         if db_stats['total_photos'] > 0:
             db_stats['detection_rate'] = round(
-                (db_stats['detected_photos'] / db_stats['total_photos']) * 100, 2
+                (db_stats['photos_with_detections'] / db_stats['total_photos']) * 100, 2
             )
         else:
             db_stats['detection_rate'] = 0.0
@@ -94,23 +94,23 @@ def get_database_stats():
 def get_today_activity():
     """Get today's activity and active states"""
     try:
-        from models.models import Photo, State
+        from models.models import Photo, State, DetectedObject
 
         # Get today's date range (start and end of today)
         today = datetime.now().date()
         today_start = datetime.combine(today, datetime.min.time())
         today_end = datetime.combine(today, datetime.max.time())
 
-        # Today's photos and detections
+        # Today's photos
         photos_today = Photo.select().where(
             (Photo.created_at >= today_start) &
             (Photo.created_at <= today_end)
         ).count()
 
-        detections_today = Photo.select().where(
-            (Photo.created_at >= today_start) &
-            (Photo.created_at <= today_end) &
-            (Photo.has_detected_objects == True)
+        # ✅ Count actual DetectedObjects today
+        detections_today = DetectedObject.select().where(
+            (DetectedObject.created_at >= today_start) &
+            (DetectedObject.created_at <= today_end)
         ).count()
 
         # Get active states names
@@ -312,19 +312,20 @@ def print_summary(results):
         print("🗄️  Database Statistics")
         print("=" * 60)
         print(f"📷 Total Photos:      {db_stats.get('total_photos', 0):,}")
-        print(f"   ✅ With Objects:   {db_stats.get('detected_photos', 0):,}")
-        print(f"   ❌ Without:        {db_stats.get('undetected_photos', 0):,}")
+        print(f"   ✅ With Objects:   {db_stats.get('photos_with_detections', 0):,}")
+        print(f"   ❌ Without:        {db_stats.get('photos_without_detections', 0):,}")
         print(f"   📈 Detection Rate: {db_stats.get('detection_rate', 0):.1f}%")
 
         print(f"\n📹 Cameras:")
-        print(f"   Total:             {db_stats.get('total_cameras', 0)}")
+        print(f"   Total:             {db_stats.get('total_cameras', 0):,}")
 
         # Only show active/inactive if they exist
         if 'active_cameras' in db_stats:
-            print(f"   🟢 Active:         {db_stats.get('active_cameras', 0)}")
-            print(f"   🔴 Inactive:       {db_stats.get('inactive_cameras', 0)}")
+            print(f"   🟢 Active:         {db_stats.get('active_cameras', 0):,}")
+            print(f"   🔴 Inactive:       {db_stats.get('inactive_cameras', 0):,}")
 
-        print(f"\n🔍 Total Objects:     {db_stats.get('total_objects', 0):,}")
+        # ✅ Show Total Detections
+        print(f"\n🔍 Total Detections:  {db_stats.get('total_detections', 0):,}")
 
     # Today's Activity
     today = results.get('today_activity', {})
