@@ -76,9 +76,9 @@ app.conf.beat_schedule = {
             'queue': 'detection',
         }
     },
-    'run-tests-daily-midnight': {
+    'run-tests-every-6-hours': {
         'task': 'tasks.run_scheduled_tests',
-        'schedule': crontab(hour=0, minute=0),
+        'schedule': crontab(minute=0, hour='*/6'),
         'options': {
             'expires': 3600,
             'queue': 'capture',

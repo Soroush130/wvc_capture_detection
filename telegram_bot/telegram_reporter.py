@@ -1,15 +1,17 @@
 # telegram_bot/telegram_reporter.py
 import os
 import asyncio
-from datetime import datetime
 from telegram import Bot
 from dotenv import load_dotenv
+from logger_config import get_logger
 
 load_dotenv()
 
+logger = get_logger(__name__)
+
 
 class TelegramReporter:
-    """Send test results to Telegram"""
+    """Send comprehensive test results to Telegram"""
 
     def __init__(self):
         self.token = os.getenv('TELEGRAM_API_KEY')
@@ -24,58 +26,131 @@ class TelegramReporter:
         self.bot = Bot(token=self.token)
 
     def format_message(self, results):
-        """Format test results as simple text with error details"""
-        emoji_status = "✅" if results['success'] else "❌"
+        """Format test results as comprehensive text report"""
+        emoji_status = "✅" if results.get('success') else "❌"
 
         lines = []
-        lines.append(f"{emoji_status} WVC Test Report")
-        lines.append("=" * 30)
-        lines.append(f"Date: {results['timestamp']}")
-        lines.append(f"Duration: {results['duration']:.2f}s")
-        lines.append("")
-        lines.append("Test Results:")
-        lines.append(f"  Passed: {results['passed']}")
-        lines.append(f"  Failed: {results['failed']}")
-        lines.append(f"  Skipped: {results['skipped']}")
-        lines.append(f"  Total: {results['total']}")
-        lines.append("")
-        lines.append(f"Coverage: {results['coverage']}%")
+
+        # Header
+        lines.append(" WVC System Test Report")
+        lines.append("=" * 40)
+        lines.append(f"📅 Date: {results.get('timestamp', 'N/A')}")
+        lines.append(f"⏱️  Duration: {results.get('duration', 0):.2f}s")
         lines.append("")
 
-        status_emoji = "🎉" if results['success'] else "💥"
-        lines.append(f"Status: {status_emoji} {results['status']}")
-        lines.append("=" * 30)
+        # Test Results
+        lines.append(" Test Results:")
+        lines.append(f"   ✅ Passed:  {results.get('passed', 0)}")
+        lines.append(f"   ❌ Failed:  {results.get('failed', 0)}")
+        lines.append(f"   ⏭️  Skipped: {results.get('skipped', 0)}")
+        lines.append(f"   📊 Total:   {results.get('total', 0)}")
 
-        # Failed tests with details
-        if results['failed'] > 0:
+        # Success rate
+        if results.get('total', 0) > 0:
+            success_rate = (results.get('passed', 0) / results.get('total', 0)) * 100
+            lines.append(f"   📈 Success: {success_rate:.1f}%")
+
+        lines.append("")
+
+        # System Information
+        system_info = results.get('system_info', {})
+        if system_info:
+            lines.append("💻 System Status:")
+            lines.append(f"   🔲 CPU:    {system_info.get('cpu_percent', 0):.1f}%")
+            lines.append(f"   🧠 Memory: {system_info.get('memory_percent', 0):.1f}%")
+            lines.append(f"   💾 Disk:   {system_info.get('disk_percent', 0):.1f}%")
+
+            if system_info.get('gpu_available'):
+                gpu_used = system_info.get('gpu_memory_used_gb', 0)
+                gpu_total = system_info.get('gpu_memory_total_gb', 0)
+                gpu_percent = (gpu_used / gpu_total * 100) if gpu_total > 0 else 0
+                lines.append(f"   🎮 GPU:    {gpu_percent:.1f}% ({gpu_used:.1f}/{gpu_total:.1f} GB)")
+            else:
+                lines.append(f"   🎮 GPU:    Not available")
+
             lines.append("")
-            lines.append("Failed Tests:")
 
-            error_details = results.get('error_details', [])
-            errors = results.get('errors', [])
+        # Database Statistics
+        db_stats = results.get('database_stats', {})
+        if db_stats and 'error' not in db_stats:
+            lines.append("🗄️  Database Stats:")
+            lines.append(f"   📷 Total Photos:    {db_stats.get('total_photos', 0):,}")
+            lines.append(f"   ✅ With Detections: {db_stats.get('detected_photos', 0):,}")
+            lines.append(f"   📹 Total Cameras:   {db_stats.get('total_cameras', 0)}")
+            lines.append(f"   🟢 Active Cameras:  {db_stats.get('active_cameras', 0)}")
+            lines.append(f"   🔍 Total Objects:   {db_stats.get('total_objects', 0):,}")
+
+            # Detection rate
+            if db_stats.get('total_photos', 0) > 0:
+                detection_rate = (db_stats.get('detected_photos', 0) / db_stats.get('total_photos', 0)) * 100
+                lines.append(f"   📈 Detection Rate:  {detection_rate:.1f}%")
+
+            lines.append("")
+
+        # Recent Activity
+        recent = results.get('recent_activity', {})
+        if recent:
+            lines.append("📊 Last Hour Activity:")
+            lines.append(f"   📸 New Photos:      {recent.get('photos_last_hour', 0)}")
+            lines.append(f"   🔍 New Detections:  {recent.get('detections_last_hour', 0)}")
+            lines.append("")
+
+        # Overall Status
+        status_emoji = "🎉" if results.get('success') else "💥"
+        status_text = "ALL TESTS PASSED" if results.get('success') else "TESTS FAILED"
+        lines.append(f"{status_emoji} Status: {status_text}")
+        lines.append("=" * 40)
+
+        # Failed Tests Details
+        if results.get('failed', 0) > 0:
+            lines.append("")
+            lines.append("💥 Failed Tests:")
+            lines.append("-" * 40)
+
+            failed_tests = results.get('failed_tests', [])
 
             # Show up to 3 failed tests with details
-            for i, error in enumerate(errors[:3], 1):
-                # Get test name (short version)
-                test_name = error.split("::")[-1]
-                if len(test_name) > 40:
-                    test_name = test_name[:37] + "..."
+            for i, test in enumerate(failed_tests[:3], 1):
+                # Get short test name
+                test_name = test.get('name', 'Unknown').split("::")[-1]
+                if len(test_name) > 35:
+                    test_name = test_name[:32] + "..."
 
                 lines.append(f"\n{i}. {test_name}")
 
-                # Add error message if available
-                if i - 1 < len(error_details):
-                    error_msg = error_details[i - 1].get('message', '')
-                    if error_msg:
-                        # Clean and truncate error message
-                        error_msg = error_msg.strip()
-                        if len(error_msg) > 150:
-                            error_msg = error_msg[:147] + "..."
-                        lines.append(f"   Error: {error_msg}")
+                # Add error message
+                error_msg = test.get('message', '').strip()
+                if error_msg:
+                    # Extract key error info
+                    error_lines = error_msg.split('\n')
+                    key_error = None
+
+                    # Look for assertion errors or key phrases
+                    for line in error_lines:
+                        if 'AssertionError' in line or 'Error' in line or 'assert' in line:
+                            key_error = line.strip()
+                            break
+
+                    if not key_error and error_lines:
+                        key_error = error_lines[0].strip()
+
+                    if key_error:
+                        if len(key_error) > 120:
+                            key_error = key_error[:117] + "..."
+                        lines.append(f"   ⚠️  {key_error}")
 
             # Show count of remaining failures
-            if len(errors) > 3:
-                lines.append(f"\n...and {len(errors) - 3} more failures")
+            if len(failed_tests) > 3:
+                lines.append(f"\n...and {len(failed_tests) - 3} more test failures")
+
+            lines.append("")
+            lines.append("💡 Tip: Check logs for full details")
+
+        # Success message
+        elif results.get('success'):
+            lines.append("")
+            lines.append("✨ All systems operational!")
+            lines.append("🚀 Ready for production")
 
         return "\n".join(lines)
 
@@ -94,12 +169,14 @@ class TelegramReporter:
             try:
                 await self.bot.send_message(
                     chat_id=chat_id,
-                    text=message
+                    text=message,
+                    parse_mode=None  # Use plain text for better emoji support
                 )
-                print(f"✅ Report sent to {chat_id}")
+                logger.info(f"✅ Report sent to {chat_id}")
                 success_count += 1
+
             except Exception as e:
-                print(f"❌ Failed to send to {chat_id}: {e}")
+                logger.info(f"❌ Failed to send to {chat_id}: {e}")
                 fail_count += 1
 
         return success_count, fail_count

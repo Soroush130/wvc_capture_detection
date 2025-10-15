@@ -14,6 +14,11 @@ from models.db_operations import (
 )
 from logger_config import get_logger
 from datetime import datetime
+import subprocess
+import sys
+import json
+import psutil
+from pathlib import Path
 
 logger = get_logger(__name__)
 
@@ -321,21 +326,18 @@ def schedule_photo_detection():
 @app.task(queue='capture')
 def run_scheduled_tests():
     """
-    Run pytest tests and send report to Telegram
-    Scheduled to run daily at midnight NY time
+    Run pytest tests and send comprehensive report to Telegram
+    Scheduled to run every 6 hours
 
     Returns:
-        Dictionary with test results
+        Dictionary with test results and system info
     """
-    import subprocess
-    import sys
-    import json
-    from pathlib import Path
-
     try:
         logger.info("=" * 80)
         logger.info("🧪 Starting scheduled test run")
         logger.info("=" * 80)
+
+        start_time = datetime.now()
 
         # Get project root directory
         project_root = Path(__file__).parent
@@ -349,13 +351,17 @@ def run_scheduled_tests():
             timeout=600  # 10 minutes timeout
         )
 
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
         # Parse results
         test_results = {
             'return_code': result.returncode,
             'success': result.returncode == 0,
             'stdout_preview': result.stdout[:500] if result.stdout else '',
             'stderr_preview': result.stderr[:500] if result.stderr else '',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': end_time.isoformat(),
+            'duration': duration,
         }
 
         # Try to read test report JSON
@@ -368,8 +374,84 @@ def run_scheduled_tests():
                     test_results['passed'] = report['summary'].get('passed', 0)
                     test_results['failed'] = report['summary'].get('failed', 0)
                     test_results['skipped'] = report['summary'].get('skipped', 0)
+
+                    # Add failed test details
+                    if 'tests' in report:
+                        failed_tests = [
+                            {
+                                'name': test.get('nodeid', 'Unknown'),
+                                'outcome': test.get('outcome', 'failed'),
+                                'message': test.get('call', {}).get('longrepr', 'No details')[:300]
+                            }
+                            for test in report['tests']
+                            if test.get('outcome') == 'failed'
+                        ]
+                        test_results['failed_tests'] = failed_tests
         except Exception as e:
             logger.warning(f"⚠️ Could not parse test report: {e}")
+
+        # Add system information
+        try:
+            test_results['system_info'] = {
+                'cpu_percent': psutil.cpu_percent(interval=1),
+                'memory_percent': psutil.virtual_memory().percent,
+                'memory_available_gb': psutil.virtual_memory().available / (1024 ** 3),
+                'disk_percent': psutil.disk_usage('/').percent,
+            }
+
+            # GPU info if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+                    gpu_used = torch.cuda.memory_allocated(0) / (1024 ** 3)
+                    test_results['system_info']['gpu_available'] = True
+                    test_results['system_info']['gpu_memory_total_gb'] = round(gpu_memory, 2)
+                    test_results['system_info']['gpu_memory_used_gb'] = round(gpu_used, 2)
+                else:
+                    test_results['system_info']['gpu_available'] = False
+            except:
+                test_results['system_info']['gpu_available'] = False
+
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get system info: {e}")
+
+        # Add database stats
+        try:
+            from models.db_operations import ensure_connection
+            from models.models import Photo, Camera, DetectedObject
+
+            ensure_connection()
+
+            test_results['database_stats'] = {
+                'total_photos': Photo.select().count(),
+                'detected_photos': Photo.select().where(Photo.has_detected_objects == True).count(),
+                'total_cameras': Camera.select().count(),
+                'active_cameras': Camera.select().where(Camera.is_active == True).count(),
+                'total_objects': DetectedObject.select().count(),
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get database stats: {e}")
+            test_results['database_stats'] = {'error': str(e)}
+
+        # Add recent activity
+        try:
+            from models.models import Photo
+            from datetime import timedelta
+
+            one_hour_ago = datetime.now() - timedelta(hours=1)
+            recent_photos = Photo.select().where(Photo.created_at >= one_hour_ago).count()
+            recent_detections = Photo.select().where(
+                (Photo.created_at >= one_hour_ago) &
+                (Photo.has_detected_objects == True)
+            ).count()
+
+            test_results['recent_activity'] = {
+                'photos_last_hour': recent_photos,
+                'detections_last_hour': recent_detections,
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get recent activity: {e}")
 
         # Log summary
         logger.info("=" * 80)
@@ -383,7 +465,21 @@ def run_scheduled_tests():
             logger.info(f"Failed: {test_results['failed']}")
             logger.info(f"Skipped: {test_results['skipped']}")
 
+        logger.info(f"Duration: {duration:.2f}s")
         logger.info("=" * 80)
+
+        # Send to Telegram
+        try:
+            from telegram_bot.telegram_reporter import TelegramReporter
+            reporter = TelegramReporter()
+            success_count, fail_count = reporter.send_sync(test_results)
+            logger.info(f"📤 Telegram report sent to {success_count} recipient(s)")
+            if fail_count > 0:
+                logger.warning(f"⚠️ Failed to send to {fail_count} recipient(s)")
+        except Exception as e:
+            logger.error(f"❌ Failed to send Telegram report: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
         return test_results
 
