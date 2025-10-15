@@ -1,7 +1,8 @@
-# Dockerfile (optimized)
+# Dockerfile (optimized with PATH fix)
 FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies and clean in ONE layer
 RUN apt-get update && apt-get install -y \
@@ -41,6 +42,7 @@ COPY . .
 
 RUN mkdir -p /app/yolo_models /app/logs /tmp/wvc_photos
 
-ENV PYTHONUNBUFFERED=1
+# Add Python scripts to PATH
+ENV PATH="/usr/local/bin:${PATH}"
 
 CMD ["celery", "-A", "celery_app", "worker", "--loglevel=info"]
