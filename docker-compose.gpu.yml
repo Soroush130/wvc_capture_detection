@@ -5,19 +5,17 @@ services:
   celery-worker-detection-1:
     environment:
       - YOLO_DEVICE=cuda:0
-      - CUDA_VISIBLE_DEVICES=0
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1  # یک GPU
+              count: 1
               capabilities: [gpu]
 
   celery-worker-detection-2:
     environment:
       - YOLO_DEVICE=cuda:0
-      - CUDA_VISIBLE_DEVICES=0
     deploy:
       resources:
         reservations:
