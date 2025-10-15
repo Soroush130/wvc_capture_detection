@@ -1,13 +1,11 @@
 # telegram_bot/telegram_reporter.py
 import os
 import asyncio
+from datetime import datetime
 from telegram import Bot
 from dotenv import load_dotenv
-from logger_config import get_logger
 
 load_dotenv()
-
-logger = get_logger(__name__)
 
 
 class TelegramReporter:
@@ -32,14 +30,14 @@ class TelegramReporter:
         lines = []
 
         # Header
-        lines.append(" WVC System Test Report")
+        lines.append("🤖 WVC System Test Report")
         lines.append("=" * 40)
         lines.append(f"📅 Date: {results.get('timestamp', 'N/A')}")
         lines.append(f"⏱️  Duration: {results.get('duration', 0):.2f}s")
         lines.append("")
 
         # Test Results
-        lines.append(" Test Results:")
+        lines.append("🧪 Test Results:")
         lines.append(f"   ✅ Passed:  {results.get('passed', 0)}")
         lines.append(f"   ❌ Failed:  {results.get('failed', 0)}")
         lines.append(f"   ⏭️  Skipped: {results.get('skipped', 0)}")
@@ -76,12 +74,12 @@ class TelegramReporter:
             lines.append("🗄️  Database Stats:")
             lines.append(f"   📷 Total Photos:    {db_stats.get('total_photos', 0):,}")
             lines.append(f"   ✅ With Detections: {db_stats.get('detected_photos', 0):,}")
-            lines.append(f"   📹 Total Cameras:   {db_stats.get('total_cameras', 0)}")
+            lines.append(f"   📹 Total Cameras:   {db_stats.get('total_cameras', 0):,}")
 
-            # ✅ Only show if available
+            # Show active/inactive cameras
             if 'active_cameras' in db_stats:
-                lines.append(f"   🟢 Active States:   {db_stats.get('active_cameras', 0)}")
-                lines.append(f"   🔴 Inactive States: {db_stats.get('inactive_cameras', 0)}")
+                lines.append(f"   🟢 Active Cameras:   {db_stats.get('active_cameras', 0):,}")
+                lines.append(f"   🔴 Inactive Cameras: {db_stats.get('inactive_cameras', 0):,}")
 
             lines.append(f"   🔍 Total Objects:   {db_stats.get('total_objects', 0):,}")
 
@@ -92,12 +90,23 @@ class TelegramReporter:
 
             lines.append("")
 
-        # Recent Activity
-        recent = results.get('recent_activity', {})
-        if recent:
-            lines.append("📊 Last Hour Activity:")
-            lines.append(f"   📸 New Photos:      {recent.get('photos_last_hour', 0)}")
-            lines.append(f"   🔍 New Detections:  {recent.get('detections_last_hour', 0)}")
+        # Today's Activity
+        today = results.get('today_activity', {})
+        if today:
+            lines.append(f"📊 Today's Activity ({today.get('date', 'N/A')}):")
+            lines.append(f"   📸 Photos:      {today.get('photos_today', 0):,}")
+            lines.append(f"   🔍 Detections:  {today.get('detections_today', 0):,}")
+
+            # Active states
+            active_states = today.get('active_states', [])
+            if active_states:
+                lines.append(f"   🟢 Active States ({today.get('active_states_count', 0)}):")
+                # Show first 5 states in Telegram
+                for state in active_states[:5]:
+                    lines.append(f"      • {state}")
+                if len(active_states) > 5:
+                    lines.append(f"      ... and {len(active_states) - 5} more")
+
             lines.append("")
 
         # Overall Status
@@ -151,12 +160,6 @@ class TelegramReporter:
             lines.append("")
             lines.append("💡 Tip: Check logs for full details")
 
-        # Success message
-        elif results.get('success'):
-            lines.append("")
-            lines.append("✨ All systems operational!")
-            lines.append("🚀 Ready for production")
-
         return "\n".join(lines)
 
     async def send_report(self, results):
@@ -177,11 +180,11 @@ class TelegramReporter:
                     text=message,
                     parse_mode=None  # Use plain text for better emoji support
                 )
-                logger.info(f"✅ Report sent to {chat_id}")
+                print(f"✅ Report sent to {chat_id}")
                 success_count += 1
 
             except Exception as e:
-                logger.info(f"❌ Failed to send to {chat_id}: {e}")
+                print(f"❌ Failed to send to {chat_id}: {e}")
                 fail_count += 1
 
         return success_count, fail_count

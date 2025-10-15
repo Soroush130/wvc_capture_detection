@@ -1,5 +1,5 @@
 # tasks.py
-from celery import group, chord
+from celery import chord
 from celery_app import app
 from capture.capture_utils import capture
 from detection.detection_utils import detect_objects
@@ -14,11 +14,6 @@ from models.db_operations import (
 )
 from logger_config import get_logger
 from datetime import datetime
-import subprocess
-import sys
-import json
-import psutil
-from pathlib import Path
 
 logger = get_logger(__name__)
 
@@ -439,7 +434,7 @@ def run_scheduled_tests():
                 'total_objects': DetectedObject.select().count(),
             }
 
-            # ✅ Get cameras by state status (Camera → City → State)
+            # Get cameras by state status (Camera → City → State)
             try:
                 # Cameras in active states
                 active_cameras = Camera.select().join(City).join(State).where(State.is_active == True).count()
@@ -464,34 +459,41 @@ def run_scheduled_tests():
             logger.warning(f"⚠️ Could not get database stats: {e}")
             test_results['database_stats'] = {'error': str(e)}
 
-        # Add recent activity
+        # Add today's activity
         try:
-            from models.models import Photo
+            from models.models import Photo, State
             from datetime import timedelta
 
-            one_hour_ago = datetime.now() - timedelta(hours=1)
-            recent_photos = Photo.select().where(Photo.created_at >= one_hour_ago).count()
-            recent_detections = Photo.select().where(
-                (Photo.created_at >= one_hour_ago) &
+            # Get today's date range
+            today = datetime.now().date()
+            today_start = datetime.combine(today, datetime.min.time())
+            today_end = datetime.combine(today, datetime.max.time())
+
+            # Today's photos and detections
+            photos_today = Photo.select().where(
+                (Photo.created_at >= today_start) &
+                (Photo.created_at <= today_end)
+            ).count()
+
+            detections_today = Photo.select().where(
+                (Photo.created_at >= today_start) &
+                (Photo.created_at <= today_end) &
                 (Photo.has_detected_objects == True)
             ).count()
 
-            # Last 24 hours
-            twenty_four_hours_ago = datetime.now() - timedelta(hours=24)
-            photos_24h = Photo.select().where(Photo.created_at >= twenty_four_hours_ago).count()
-            detections_24h = Photo.select().where(
-                (Photo.created_at >= twenty_four_hours_ago) &
-                (Photo.has_detected_objects == True)
-            ).count()
+            # Get active states names
+            active_states = State.select().where(State.is_active == True).order_by(State.name)
+            active_state_names = [state.name for state in active_states]
 
-            test_results['recent_activity'] = {
-                'photos_last_hour': recent_photos,
-                'detections_last_hour': recent_detections,
-                'photos_last_24h': photos_24h,
-                'detections_last_24h': detections_24h,
+            test_results['today_activity'] = {
+                'date': today.strftime('%Y-%m-%d'),
+                'photos_today': photos_today,
+                'detections_today': detections_today,
+                'active_states': active_state_names,
+                'active_states_count': len(active_state_names),
             }
         except Exception as e:
-            logger.warning(f"⚠️ Could not get recent activity: {e}")
+            logger.warning(f"⚠️ Could not get today's activity: {e}")
 
         # Log summary
         logger.info("=" * 80)

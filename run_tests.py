@@ -91,36 +91,42 @@ def get_database_stats():
         return {'error': str(e)}
 
 
-def get_recent_activity():
-    """Get recent activity (last hour)"""
+def get_today_activity():
+    """Get today's activity and active states"""
     try:
-        from models.models import Photo
+        from models.models import Photo, State
 
-        one_hour_ago = datetime.now() - timedelta(hours=1)
+        # Get today's date range (start and end of today)
+        today = datetime.now().date()
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
 
-        recent_photos = Photo.select().where(Photo.created_at >= one_hour_ago).count()
-        recent_detections = Photo.select().where(
-            (Photo.created_at >= one_hour_ago) &
+        # Today's photos and detections
+        photos_today = Photo.select().where(
+            (Photo.created_at >= today_start) &
+            (Photo.created_at <= today_end)
+        ).count()
+
+        detections_today = Photo.select().where(
+            (Photo.created_at >= today_start) &
+            (Photo.created_at <= today_end) &
             (Photo.has_detected_objects == True)
         ).count()
 
-        # Last 24 hours for comparison
-        twenty_four_hours_ago = datetime.now() - timedelta(hours=24)
-        photos_24h = Photo.select().where(Photo.created_at >= twenty_four_hours_ago).count()
-        detections_24h = Photo.select().where(
-            (Photo.created_at >= twenty_four_hours_ago) &
-            (Photo.has_detected_objects == True)
-        ).count()
+        # Get active states names
+        active_states = State.select().where(State.is_active == True).order_by(State.name)
+        active_state_names = [state.name for state in active_states]
 
         return {
-            'photos_last_hour': recent_photos,
-            'detections_last_hour': recent_detections,
-            'photos_last_24h': photos_24h,
-            'detections_last_24h': detections_24h,
+            'date': today.strftime('%Y-%m-%d'),
+            'photos_today': photos_today,
+            'detections_today': detections_today,
+            'active_states': active_state_names,
+            'active_states_count': len(active_state_names),
         }
 
     except Exception as e:
-        print(f"⚠️  Could not get recent activity: {e}")
+        print(f"⚠️  Could not get today's activity: {e}")
         return {}
 
 
@@ -176,7 +182,7 @@ def run_tests():
             'coverage': round(coverage, 2),
             'success': report['summary'].get('failed', 0) == 0 and report['summary']['total'] > 0,
             'status': 'SUCCESS ✅' if (
-                        report['summary'].get('failed', 0) == 0 and report['summary']['total'] > 0) else 'FAILED ❌',
+                    report['summary'].get('failed', 0) == 0 and report['summary']['total'] > 0) else 'FAILED ❌',
             'errors': [],
             'error_details': [],
             'failed_tests': []
@@ -232,9 +238,9 @@ def run_tests():
         print("📊 Collecting database statistics...")
         results['database_stats'] = get_database_stats()
 
-        # Add recent activity
-        print("📊 Collecting recent activity...")
-        results['recent_activity'] = get_recent_activity()
+        # Add today's activity
+        print("📊 Collecting today's activity...")
+        results['today_activity'] = get_today_activity()
 
         return results
 
@@ -310,29 +316,34 @@ def print_summary(results):
         print(f"   ❌ Without:        {db_stats.get('undetected_photos', 0):,}")
         print(f"   📈 Detection Rate: {db_stats.get('detection_rate', 0):.1f}%")
 
-        # ✅ Updated camera display
         print(f"\n📹 Cameras:")
         print(f"   Total:             {db_stats.get('total_cameras', 0)}")
 
         # Only show active/inactive if they exist
         if 'active_cameras' in db_stats:
-            print(f"   🟢 In Active States:   {db_stats.get('active_cameras', 0)}")
-            print(f"   🔴 In Inactive States: {db_stats.get('inactive_cameras', 0)}")
+            print(f"   🟢 Active:         {db_stats.get('active_cameras', 0)}")
+            print(f"   🔴 Inactive:       {db_stats.get('inactive_cameras', 0)}")
 
         print(f"\n🔍 Total Objects:     {db_stats.get('total_objects', 0):,}")
 
-    # Recent Activity
-    recent = results.get('recent_activity', {})
-    if recent:
+    # Today's Activity
+    today = results.get('today_activity', {})
+    if today:
         print("\n" + "=" * 60)
-        print("📊 Recent Activity")
+        print(f"📊 Today's Activity ({today.get('date', 'N/A')})")
         print("=" * 60)
-        print(f"Last Hour:")
-        print(f"   📸 Photos:         {recent.get('photos_last_hour', 0)}")
-        print(f"   🔍 Detections:     {recent.get('detections_last_hour', 0)}")
-        print(f"\nLast 24 Hours:")
-        print(f"   📸 Photos:         {recent.get('photos_last_24h', 0)}")
-        print(f"   🔍 Detections:     {recent.get('detections_last_24h', 0)}")
+        print(f"📸 Photos:            {today.get('photos_today', 0):,}")
+        print(f"🔍 Detections:        {today.get('detections_today', 0):,}")
+
+        # Active states
+        active_states = today.get('active_states', [])
+        if active_states:
+            print(f"\n🟢 Active States ({today.get('active_states_count', 0)}):")
+            # Show first 10 states
+            for state in active_states[:10]:
+                print(f"   • {state}")
+            if len(active_states) > 10:
+                print(f"   ... and {len(active_states) - 10} more")
 
     # Failed Tests
     if results['failed'] > 0 and results['errors']:
@@ -359,6 +370,7 @@ def print_summary(results):
         print("\n💡 Tip: Check test_report.json for full details")
 
     print("=" * 60)
+
 
 def main():
     """Main function"""
