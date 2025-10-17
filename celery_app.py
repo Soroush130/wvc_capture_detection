@@ -64,23 +64,23 @@ app.conf.beat_schedule = {
         'task': 'tasks.schedule_camera_captures',
         'schedule': crontab(minute='*/5'),
         'options': {
-            'expires': 300,
+            'expires': 300,  # 5 minutes
             'queue': 'capture',
         }
     },
-    'detect-photos-every-2-minute': {
+    'detect-photos-every-3-minute': {
         'task': 'tasks.schedule_photo_detection',
-        'schedule': crontab(minute='*/2'),
+        'schedule': crontab(minute='*/3'),
         'options': {
-            'expires': 120,
+            'expires': 180,  # 3 minutes
             'queue': 'detection',
         }
     },
-    'run-tests-every-6-hours': {
+    'run-tests-daily-midnight': {
         'task': 'tasks.run_scheduled_tests',
-        'schedule': crontab(minute=0, hour='*/6'),
+        'schedule': crontab(minute=0, hour=0),
         'options': {
-            'expires': 3600,
+            'expires': 21600,
             'queue': 'capture',
         }
     },

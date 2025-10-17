@@ -10,7 +10,7 @@ from aws_s3.s3_utils import upload_to_s3
 
 logger = get_logger(__name__)
 
-YOLO_MODEL_PATH = os.getenv('YOLO_MODEL_PATH', 'yolo_models/yolov8n.pt')
+YOLO_MODEL_PATH = os.getenv('YOLO_MODEL_PATH', 'yolo_models/yolov8x-worldv2.pt')
 YOLO_DEVICE = os.getenv('YOLO_DEVICE', 'cpu')
 YOLO_MIN_CONFIDENCE = float(os.getenv('YOLO_MIN_CONFIDENCE', 0.25))
 YOLO_SYSTEM_CONFIDENCE = float(os.getenv('YOLO_SYSTEM_CONFIDENCE', 0.5))
