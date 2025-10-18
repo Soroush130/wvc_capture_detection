@@ -67,7 +67,7 @@ def log_gpu_memory(device: str, step: str = ""):
 
 
 # ==================== CLASS CONFIGURATION ====================
-MIN_CONFIDENCE = 0.50
+MIN_CONFIDENCE = 0.80
 
 CLASS_CONFIG = {
     # ==================== VEHICLES ====================
